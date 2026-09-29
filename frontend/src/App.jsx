@@ -898,6 +898,7 @@ function LoginPage({ onLogin }) {
 
       window.google.accounts.id.initialize({
         client_id: clientId,
+        use_fedcm_for_button: true,
         callback: async (response) => {
           if (!response?.credential) {
             setMessage("Google sign-in did not return a credential.");

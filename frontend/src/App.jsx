@@ -404,17 +404,9 @@ function App() {
 
             <button
               type="button"
+              className="signout-button"
               onClick={handleLogout}
               title="Sign out"
-              style={{
-                border: "none",
-                background: "transparent",
-                color: "inherit",
-                cursor: "pointer",
-                fontSize: 11,
-                padding: "5px 4px",
-                opacity: 0.8,
-              }}
             >
               Sign out
             </button>

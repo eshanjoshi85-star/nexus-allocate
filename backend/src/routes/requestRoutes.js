@@ -7,23 +7,93 @@ const {
     getRequests,
     getRequestById,
     approveRequest,
-    rejectRequest
+    rejectRequest,
+    getActiveAllocations,
+    completeAllocation
 } = require("../controllers/requestController");
 
 const router = express.Router();
 
-router.post("/check", checkAvailability);
 
-router.post("/alternatives", findAlternatives);
+// =====================================================
+// AVAILABILITY
+// =====================================================
 
-router.post("/", createRequest);
+router.post(
+    "/check",
+    checkAvailability
+);
 
-router.get("/", getRequests);
 
-router.get("/:id", getRequestById);
+// =====================================================
+// ALTERNATIVES
+// =====================================================
 
-router.post("/:id/approve", approveRequest);
+router.post(
+    "/alternatives",
+    findAlternatives
+);
 
-router.post("/:id/reject", rejectRequest);
+
+// =====================================================
+// ACTIVE ALLOCATIONS
+// IMPORTANT: Keep this BEFORE /:id
+// =====================================================
+
+router.get(
+    "/allocations/active",
+    getActiveAllocations
+);
+
+
+// =====================================================
+// COMPLETE ALLOCATION
+// =====================================================
+
+router.post(
+    "/allocations/:id/complete",
+    completeAllocation
+);
+
+
+// =====================================================
+// REQUESTS
+// =====================================================
+
+router.post(
+    "/",
+    createRequest
+);
+
+router.get(
+    "/",
+    getRequests
+);
+
+router.get(
+    "/:id",
+    getRequestById
+);
+
+
+// =====================================================
+// APPROVAL
+// =====================================================
+
+router.post(
+    "/:id/approve",
+    approveRequest
+);
+
+
+// =====================================================
+// REJECTION
+// =====================================================
+
+router.post(
+    "/:id/reject",
+    rejectRequest
+);
+
 
 module.exports = router;

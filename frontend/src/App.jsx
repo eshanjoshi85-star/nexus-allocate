@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   UserCheck,
   Database,
+  RefreshCw,
 } from "lucide-react";
 
 import {
@@ -1813,6 +1814,43 @@ function RequestPage({
 function AdminRequestsPage({ requests, onBack, onRefresh }) {
   const [busyId, setBusyId] = useState(null);
   const [message, setMessage] = useState("");
+  const [activeAllocations, setActiveAllocations] = useState([]);
+  const [loadingAllocations, setLoadingAllocations] = useState(false);
+
+  const loadActiveAllocations = async () => {
+    try {
+      setLoadingAllocations(true);
+      const response = await fetch(`${API}/requests/allocations/active`, {
+        method: "GET",
+        headers: authHeaders(),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.success === false) {
+        setMessage(data.message || "Unable to load active allocations.");
+        return;
+      }
+
+      setActiveAllocations(data.allocations || []);
+    } catch (error) {
+      console.error("Load active allocations error:", error);
+      setMessage("Unable to load active allocations.");
+    } finally {
+      setLoadingAllocations(false);
+    }
+  };
+
+  const refreshAll = async () => {
+    await Promise.all([
+      onRefresh(),
+      loadActiveAllocations(),
+    ]);
+  };
+
+  useEffect(() => {
+    loadActiveAllocations();
+  }, []);
 
   const updateRequest = async (id, action) => {
     try {
@@ -1821,7 +1859,7 @@ function AdminRequestsPage({ requests, onBack, onRefresh }) {
 
       const response = await fetch(`${API}/requests/${id}/${action}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
       });
 
       const data = await response.json();
@@ -1831,30 +1869,86 @@ function AdminRequestsPage({ requests, onBack, onRefresh }) {
         return;
       }
 
-      setMessage(`Request #${id} ${action}d successfully.`);
-      await onRefresh();
+      setMessage(
+        action === "approve"
+          ? `Request #${id} approved successfully.`
+          : `Request #${id} rejected successfully.`
+      );
+
+      await refreshAll();
     } catch (error) {
-      console.error(error);
+      console.error("Update request error:", error);
       setMessage(`Unable to ${action} request.`);
     } finally {
       setBusyId(null);
     }
   };
 
+  const completeAllocation = async (allocationId) => {
+    try {
+      setBusyId(`allocation-${allocationId}`);
+      setMessage("");
+
+      const response = await fetch(
+        `${API}/requests/allocations/${allocationId}/complete`,
+        {
+          method: "POST",
+          headers: authHeaders(),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || data.success === false) {
+        setMessage(data.message || "Unable to complete allocation.");
+        return;
+      }
+
+      setMessage(
+        `Allocation #${allocationId} completed. Resource is now available.`
+      );
+
+      await refreshAll();
+    } catch (error) {
+      console.error("Complete allocation error:", error);
+      setMessage("Unable to complete allocation.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
-    <AdminPageShell title="Request Management" subtitle="Review and approve resource allocation requests." icon={<ClipboardList size={22} />} onBack={onBack}>
-      {message && <div className="form-message" style={{ marginBottom: 16 }}>{message}</div>}
-      <div className="panel resources-panel">
+    <AdminPageShell
+      title="Request Management"
+      subtitle="Review requests and manage active allocations."
+      icon={<ClipboardList size={22} />}
+      onBack={onBack}
+    >
+      {message && (
+        <div className="form-message" style={{ marginBottom: 16 }}>
+          {message}
+        </div>
+      )}
+
+      {/* APPROVAL QUEUE */}
+      <div className="panel resources-panel" style={{ marginBottom: 20 }}>
         <div className="panel-header">
           <div>
             <h3>Approval queue</h3>
             <p>Only administrators can approve or reject requests.</p>
           </div>
-          <button className="view-button" onClick={onRefresh}><Clock3 size={15} /> Refresh</button>
+
+          <button className="view-button" onClick={refreshAll}>
+            <Clock3 size={15} />
+            Refresh
+          </button>
         </div>
 
         {requests.length === 0 ? (
-          <div className="empty-state"><ClipboardList size={28} /><p>No requests found.</p></div>
+          <div className="empty-state">
+            <ClipboardList size={28} />
+            <p>No requests found.</p>
+          </div>
         ) : (
           <div className="table-wrapper">
             <table>
@@ -1868,17 +1962,39 @@ function AdminRequestsPage({ requests, onBack, onRefresh }) {
                   <th>ACTION</th>
                 </tr>
               </thead>
+
               <tbody>
                 {requests.map((request) => (
                   <tr key={request.id}>
-                    <td>{request.requested_by || `User #${request.user_id}`}</td>
-                    <td>{request.resource_name || `Resource #${request.resource_id}`}</td>
                     <td>
-                      {new Date(request.start_time).toLocaleDateString()}<br />
-                      {new Date(request.start_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {request.requested_by || `User #${request.user_id}`}
                     </td>
+
+                    <td>
+                      {request.resource_name ||
+                        `Resource #${request.resource_id}`}
+                    </td>
+
+                    <td>
+                      {new Date(request.start_time).toLocaleDateString()}
+                      <br />
+                      {new Date(request.start_time).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      {" – "}
+                      {new Date(request.end_time).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
+
                     <td>{request.purpose || "—"}</td>
-                    <td><StatusBadge status={request.status} /></td>
+
+                    <td>
+                      <StatusBadge status={request.status} />
+                    </td>
+
                     <td>
                       {String(request.status).toUpperCase() === "PENDING" ? (
                         <div style={{ display: "flex", gap: 8 }}>
@@ -1886,22 +2002,171 @@ function AdminRequestsPage({ requests, onBack, onRefresh }) {
                             className="submit-button"
                             style={{ padding: "8px 12px" }}
                             disabled={busyId === request.id}
-                            onClick={() => updateRequest(request.id, "approve")}
+                            onClick={() =>
+                              updateRequest(request.id, "approve")
+                            }
                           >
-                            <CheckCircle2 size={14} /> Approve
+                            <CheckCircle2 size={14} />
+                            Approve
                           </button>
+
                           <button
                             className="check-button"
                             style={{ padding: "8px 12px" }}
                             disabled={busyId === request.id}
-                            onClick={() => updateRequest(request.id, "reject")}
+                            onClick={() =>
+                              updateRequest(request.id, "reject")
+                            }
                           >
-                            <XCircle size={14} /> Reject
+                            <XCircle size={14} />
+                            Reject
                           </button>
                         </div>
                       ) : (
-                        <span style={{ color: "#64748b", fontSize: 12 }}>Completed</span>
+                        <span
+                          style={{
+                            color: "#64748b",
+                            fontSize: 12,
+                          }}
+                        >
+                          {String(request.status).toUpperCase() === "APPROVED"
+                            ? "Approved"
+                            : "Closed"}
+                        </span>
                       )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ACTIVE ALLOCATIONS */}
+      <div className="panel resources-panel">
+        <div className="panel-header">
+          <div>
+            <h3>Active allocations</h3>
+            <p>Resources currently assigned to users.</p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 13,
+                color: "#64748b",
+              }}
+            >
+              {activeAllocations.length} active
+            </span>
+
+            <button
+              className="view-button"
+              onClick={loadActiveAllocations}
+              disabled={loadingAllocations}
+            >
+              <RefreshCw size={15} />
+              {loadingAllocations ? "Loading..." : "Refresh"}
+            </button>
+          </div>
+        </div>
+
+        {loadingAllocations ? (
+          <div className="empty-state">
+            <Activity size={28} />
+            <p>Loading active allocations...</p>
+          </div>
+        ) : activeAllocations.length === 0 ? (
+          <div className="empty-state">
+            <CheckCircle2 size={28} />
+            <p>No active allocations.</p>
+          </div>
+        ) : (
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>RESOURCE</th>
+                  <th>TYPE</th>
+                  <th>ALLOCATED TO</th>
+                  <th>START</th>
+                  <th>END</th>
+                  <th>STATUS</th>
+                  <th>ACTION</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {activeAllocations.map((allocation) => (
+                  <tr key={allocation.id}>
+                    <td>
+                      <strong>
+                        {allocation.resource_name ||
+                          `Resource #${allocation.resource_id}`}
+                      </strong>
+                    </td>
+
+                    <td>{allocation.resource_type || "—"}</td>
+
+                    <td>
+                      {allocation.user_name ||
+                        `User #${allocation.user_id}`}
+                    </td>
+
+                    <td>
+                      {new Date(
+                        allocation.start_time
+                      ).toLocaleDateString()}
+                      <br />
+                      {new Date(
+                        allocation.start_time
+                      ).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
+
+                    <td>
+                      {new Date(
+                        allocation.end_time
+                      ).toLocaleDateString()}
+                      <br />
+                      {new Date(
+                        allocation.end_time
+                      ).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
+
+                    <td>
+                      <StatusBadge status="ACTIVE" />
+                    </td>
+
+                    <td>
+                      <button
+                        className="submit-button"
+                        style={{ padding: "8px 12px" }}
+                        disabled={
+                          busyId === `allocation-${allocation.id}`
+                        }
+                        onClick={() =>
+                          completeAllocation(allocation.id)
+                        }
+                      >
+                        <CheckCircle2 size={14} />
+                        {allocation.resource_type === "EQUIPMENT" ||
+                        allocation.resource_type === "LAPTOP"
+                          ? "Mark Returned"
+                          : "Release Resource"}
+                      </button>
                     </td>
                   </tr>
                 ))}
